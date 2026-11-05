@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Uliveto</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --olive: #5B6B2E;
+    --leaf: #2F3A1A;
+    --silver: #C9CFB8;
+    --stone: #F7F7F2;
+    --ripe: #4A2E4F;
+    --danger: #A23B2A;
+    --ink: #1E2412;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Roboto", sans-serif; color: var(--ink); }
+  #map { position: absolute; inset: 0; background: #e8e8e0; }
+
+  /* Barra in basso: grandi bottoni, leggibili al sole */
+  #toolbar {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000;
+    display: flex; gap: 6px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: var(--leaf);
+  }
+  #toolbar button {
+    flex: 1; min-height: 58px; border: 0; border-radius: 10px;
+    background: transparent; color: var(--stone);
+    font-family: inherit; font-weight: 600; font-size: 13px; line-height: 1.1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  }
+  #toolbar button .ic { font-size: 22px; line-height: 1; }
+  #toolbar button.on { background: var(--silver); color: var(--leaf); }
+
+  /* Bottoni flottanti a destra */
+  #fabs { position: absolute; right: 10px; top: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
+  .fab {
+    width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--leaf);
+    background: var(--stone); color: var(--leaf); font-size: 20px; display: grid; place-items: center;
+    box-shadow: 0 2px 6px rgba(30,36,18,.35);
+  }
+
+  /* Indicazione modalità in alto */
+  #hint {
+    position: absolute; left: 10px; right: 68px; top: 10px; z-index: 1000;
+    background: var(--ripe); color: #fff; border-radius: 10px; padding: 10px 12px;
+    font-size: 15px; line-height: 1.3; display: none;
+  }
+  #hint.show { display: block; }
+
+  /* Barra di disegno */
+  #drawbar {
+    position: absolute; left: 0; right: 0; bottom: 74px; z-index: 1000;
+    display: none; gap: 8px; padding: 0 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  #drawbar.show { display: flex; }
+  #drawbar button, .btn {
+    flex: 1; min-height: 50px; border-radius: 10px; border: 2px solid var(--leaf);
+    background: var(--stone); color: var(--leaf); font-family: inherit; font-weight: 600; font-size: 15px;
+  }
+  #drawbar button.primary, .btn.primary { background: var(--olive); border-color: var(--olive); color: #fff; }
+  #drawbar button:disabled { opacity: .45; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); background: #fff; }
+
+  /* Etichetta del perimetro */
+  .plabel {
+    background: rgba(247,247,242,.9); border: 1px solid var(--leaf); color: var(--leaf);
+    font-weight: 700; font-size: 13px; padding: 2px 6px; border-radius: 6px; box-shadow: none;
+  }
+  .plabel::before { display: none; }
+
+  /* Pin ulivo: un'oliva matura */
+  .olive-pin { position: relative; }
+  .olive-pin .fruit {
+    position: absolute; left: 6px; top: 2px; width: 18px; height: 24px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #8a6a90 0 18%, var(--ripe) 45%);
+    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  }
+  .olive-pin .leaf {
+    position: absolute; left: 17px; top: -4px; width: 14px; height: 7px; border-radius: 0 100% 0 100%;
+    background: var(--olive); border: 1px solid #fff; transform: rotate(-30deg);
+  }
+
+  /* Finestre */
+  #modal { position: fixed; inset: 0; z-index: 2000; background: rgba(30,36,18,.55); display: none; align-items: flex-end; }
+  #modal.show { display: flex; }
+  #modal .box {
+    width: 100%; background: var(--stone); border-radius: 16px 16px 0 0;
+    padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px)); max-height: 85vh; overflow-y: auto;
+  }
+  #modal h2 { margin: 0 0 12px; font-size: 20px; color: var(--leaf); }
+  #modal label { display: block; font-size: 14px; font-weight: 600; margin: 10px 0 4px; color: var(--leaf); }
+  #modal input, #modal textarea {
+    width: 100%; font-family: inherit; font-size: 16px; padding: 12px; border: 2px solid var(--silver); border-radius: 8px; background: #fff;
+  }
+  #modal input:focus, #modal textarea:focus { outline: none; border-color: var(--olive); }
+  #modal textarea { min-height: 70px; resize: vertical; }
+  #modal .row { display: flex; gap: 8px; margin-top: 16px; }
+  #modal p { margin: 0 0 6px; line-height: 1.45; }
+  .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+  .swatch { width: 38px; height: 38px; border-radius: 50%; border: 3px solid transparent; }
+  .swatch.sel { border-color: var(--ink); }
+
+  /* Elenco */
+  .list-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 12px 4px; border-bottom: 1px solid var(--silver);
+  }
+  .list-item .dot { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+  .list-item .t { flex: 1; }
+  .list-item .t b { display: block; }
+  .list-item .t small { color: #5a5f4c; }
+  .stat { font-size: 15px; margin-bottom: 8px; }
+
+  .leaflet-popup-content { margin: 12px 14px; font-size: 14px; min-width: 190px; }
+  .pop h3 { margin: 0 0 4px; font-size: 16px; color: var(--leaf); }
+  .pop .meta { color: #5a5f4c; margin-bottom: 8px; }
+  .pop .row { display: flex; gap: 6px; }
+  .pop .btn { min-height: 40px; font-size: 14px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 3000;
+    background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 20px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="hint"></div>
+
+<div id="fabs">
+  <button class="fab" id="btnLocate" aria-label="La mia posizione">◎</button>
+  <button class="fab" id="btnLayer" aria-label="Cambia mappa">🛰</button>
+</div>
+
+<div id="drawbar">
+  <button id="btnUndo">Togli punto</button>
+  <button id="btnCancel">Annulla</button>
+  <button id="btnFinish" class="primary" disabled>Chiudi</button>
+</div>
+
+<div id="toolbar">
+  <button id="mPerim"><span class="ic">⬠</span>Perimetro</button>
+  <button id="mOlive"><span class="ic">🫒</span>Ulivo</button>
+  <button id="mGps"><span class="ic">📍</span>Ulivo qui</button>
+  <button id="mList"><span class="ic">☰</span>Elenco</button>
+</div>
+
+<div id="modal"><div class="box" id="modalBox"></div></div>
+<div id="toast"></div>
+<input type="file" id="fileIn" accept=".geojson,.json,application/json" hidden>
+
+<script>
+'use strict';
+/* ---------- Dati ---------- */
+const STORE = 'uliveto-v1';
+const COLORS = ['#2e7d32', '#5B6B2E', '#c28b00', '#1565c0', '#A23B2A', '#4A2E4F'];
+let data = { perimeters: [], olives: [] };
+
+function load() {
+  try { const s = localStorage.getItem(STORE); if (s) data = JSON.parse(s); } catch (e) {}
+  data.perimeters = data.perimeters || []; data.olives = data.olives || [];
+}
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify(data)); }
+  catch (e) { toast('Memoria piena: esporta i dati'); }
+  scheduleFolderSave();
+}
+
+/* ---------- Salvataggio automatico nella cartella ---------- */
+const hasAndroid = () => !!window.Android && typeof Android.saveToFolder === 'function';
+const folderName = () => hasAndroid() ? Android.getFolderName() : '';
+let folderT;
+function scheduleFolderSave() {
+  if (!hasAndroid()) return;
+  clearTimeout(folderT);
+  folderT = setTimeout(() => saveToFolder(true), 1500);  // aspetta che tu finisca di toccare
+}
+function saveToFolder(silent) {
+  if (!hasAndroid()) return toast('Disponibile solo nell’app Android');
+  if (!folderName()) return silent ? null : Android.chooseFolder();
+  Android.saveToFolder(JSON.stringify(toGeoJSON(), null, 1), new Date().toISOString().slice(0, 10), !!silent);
+}
+window.onFolderSet = function (name) {
+  toast('Cartella scelta: ' + name);
+  saveToFolder(false);
+};
+window.onFolderLost = function () {
+  toast('Cartella non più accessibile: sceglila di nuovo');
+};
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- Geometria ---------- */
+const rad = d => d * Math.PI / 180;
+function areaM2(coords) {
+  const R = 6378137; let a = 0;
+  for (let i = 0; i < coords.length; i++) {
+    const [la1, lo1] = coords[i], [la2, lo2] = coords[(i + 1) % coords.length];
+    a += rad(lo2 - lo1) * (2 + Math.sin(rad(la1)) + Math.sin(rad(la2)));
+  }
+  return Math.abs(a * R * R / 2);
+}
+function fmtArea(m2) {
+  return m2 >= 10000 ? (m2 / 10000).toLocaleString('it-IT', { maximumFractionDigits: 2 }) + ' ha'
+                     : Math.round(m2).toLocaleString('it-IT') + ' m²';
+}
+function inside(lat, lng, poly) {
+  let ins = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i], [yj, xj] = poly[j];
+    if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) ins = !ins;
+  }
+  return ins;
+}
+const olivesIn = p => data.olives.filter(o => inside(o.lat, o.lng, p.coords));
+
+/* ---------- Mappa ---------- */
+const map = L.map('map', { zoomControl: false, attributionControl: true }).setView([41.9, 12.5], 6);
+const layers = {
+  osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 20, maxNativeZoom: 19, attribution: '© OpenStreetMap'
+  }),
+  sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 20, maxNativeZoom: 19, attribution: 'Immagini © Esri'
+  })
+};
+let base = 'osm';
+layers.osm.addTo(map);
+
+const perimLayer = L.layerGroup().addTo(map);
+const oliveLayer = L.layerGroup().addTo(map);
+const draftLayer = L.layerGroup().addTo(map);
+let meMarker = null, meCircle = null;
+
+const oliveIcon = L.divIcon({
+  className: 'olive-pin', html: '<div class="fruit"></div><div class="leaf"></div>',
+  iconSize: [30, 30], iconAnchor: [15, 28], popupAnchor: [0, -26]
+});
+
+function render() {
+  perimLayer.clearLayers(); oliveLayer.clearLayers();
+  data.perimeters.forEach(p => {
+    const poly = L.polygon(p.coords, { color: p.color, weight: 3, fillOpacity: .15 });
+    poly.bindTooltip(esc(p.name), { permanent: true, direction: 'center', className: 'plabel' });
+    poly.on('click', e => {
+      if (mode !== 'view') return;   // in disegno il tocco passa alla mappa
+      L.DomEvent.stopPropagation(e);
+      L.popup().setLatLng(e.latlng).setContent(perimPopup(p)).openOn(map);
+    });
+    poly.addTo(perimLayer);
+  });
+  data.olives.forEach(o => {
+    const m = L.marker([o.lat, o.lng], { icon: oliveIcon, draggable: true });
+    m.bindPopup(() => olivePopup(o, m));
+    m.on('dragend', () => { const ll = m.getLatLng(); o.lat = ll.lat; o.lng = ll.lng; save(); toast('Ulivo spostato'); });
+    m.addTo(oliveLayer);
+  });
+}
+
+function perimPopup(p) {
+  const el = document.createElement('div'); el.className = 'pop';
+  el.innerHTML = `<h3>${esc(p.name)}</h3>
+    <div class="meta">${fmtArea(areaM2(p.coords))} · ${olivesIn(p).length} ulivi</div>
+    ${p.note ? `<p>${esc(p.note)}</p>` : ''}
+    <div class="row"><button class="btn" data-a="edit">Modifica</button><button class="btn danger" data-a="del">Elimina</button></div>`;
+  el.querySelector('[data-a=edit]').onclick = () => { map.closePopup(); editPerimeter(p); };
+  el.querySelector('[data-a=del]').onclick = () => {
+    map.closePopup();
+    confirmBox(`Eliminare «${p.name}»?`, 'Gli ulivi al suo interno restano sulla mappa.', 'Elimina', () => {
+      data.perimeters = data.perimeters.filter(x => x.id !== p.id); save(); render(); toast('Perimetro eliminato');
+    });
+  };
+  return el;
+}
+
+function olivePopup(o, m) {
+  const el = document.createElement('div'); el.className = 'pop';
+  const lines = [o.variety && `Varietà: ${esc(o.variety)}`, o.note && esc(o.note)].filter(Boolean).join('<br>');
+  el.innerHTML = `<h3>${esc(o.name)}</h3>
+    <div class="meta">${o.lat.toFixed(6)}, ${o.lng.toFixed(6)}</div>
+    ${lines ? `<p>${lines}</p>` : ''}
+    <div class="row"><button class="btn" data-a="edit">Modifica</button><button class="btn danger" data-a="del">Elimina</button></div>`;
+  el.querySelector('[data-a=edit]').onclick = () => { m.closePopup(); editOlive(o); };
+  el.querySelector('[data-a=del]').onclick = () => {
+    m.closePopup();
+    confirmBox(`Eliminare «${o.name}»?`, '', 'Elimina', () => {
+      data.olives = data.olives.filter(x => x.id !== o.id); save(); render(); toast('Ulivo eliminato');
+    });
+  };
+  return el;
+}
+
+/* ---------- Modalità ---------- */
+let mode = 'view', draft = [];
+const $ = id => document.getElementById(id);
+
+function setMode(m) {
+  mode = m; draft = []; draftLayer.clearLayers(); map.closePopup();
+  $('mPerim').classList.toggle('on', m === 'draw');
+  $('mOlive').classList.toggle('on', m === 'olive');
+  $('drawbar').classList.toggle('show', m === 'draw');
+  const hint = $('hint');
+  hint.textContent = m === 'draw' ? 'Tocca la mappa per mettere i vertici del perimetro.'
+                   : m === 'olive' ? 'Tocca la mappa dove si trova l’ulivo. Tocca di nuovo «Ulivo» per finire.' : '';
+  hint.classList.toggle('show', m !== 'view');
+  map.getContainer().style.cursor = m === 'view' ? '' : 'crosshair';
+  updateDrawbar();
+}
+
+function drawDraft() {
+  draftLayer.clearLayers();
+  if (draft.length >= 2) L.polygon(draft, { color: '#4A2E4F', weight: 3, dashArray: '6 6', fillOpacity: .1 }).addTo(draftLayer);
+  draft.forEach((c, i) => L.circleMarker(c, {
+    radius: i === 0 ? 9 : 7, color: '#fff', weight: 2, fillColor: '#4A2E4F', fillOpacity: 1
+  }).addTo(draftLayer));
+  updateDrawbar();
+}
+function updateDrawbar() {
+  $('btnFinish').disabled = draft.length < 3;
+  $('btnUndo').disabled = draft.length === 0;
+}
+
+map.on('click', e => {
+  if (mode === 'draw') { draft.push([e.latlng.lat, e.latlng.lng]); drawDraft(); }
+  else if (mode === 'olive') addOlive(e.latlng.lat, e.latlng.lng);
+});
+
+function addOlive(lat, lng) {
+  const n = data.olives.length + 1;
+  const o = { id: uid(), name: 'Ulivo ' + n, variety: '', note: '', lat, lng, created: new Date().toISOString() };
+  data.olives.push(o); save(); render();
+  toast(o.name + ' aggiunto');
+}
+
+$('mPerim').onclick = () => setMode(mode === 'draw' ? 'view' : 'draw');
+$('mOlive').onclick = () => setMode(mode === 'olive' ? 'view' : 'olive');
+$('btnUndo').onclick = () => { draft.pop(); drawDraft(); };
+$('btnCancel').onclick = () => setMode('view');
+$('btnFinish').onclick = () => {
+  const coords = draft.slice();
+  form('Nuovo perimetro', { name: 'Uliveto ' + (data.perimeters.length + 1), note: '', color: COLORS[0] }, true, v => {
+    const p = { id: uid(), name: v.name || 'Senza nome', note: v.note, color: v.color, coords };
+    data.perimeters.push(p); save(); setMode('view'); render();
+    toast(`«${p.name}» salvato · ${fmtArea(areaM2(coords))}`);
+  });
+};
+
+$('mGps').onclick = () => {
+  if (!navigator.geolocation) return toast('GPS non disponibile');
+  toast('Cerco la posizione…');
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+    addOlive(lat, lng);
+    map.setView([lat, lng], Math.max(map.getZoom(), 18));
+    if (accuracy > 15) setTimeout(() => toast(`Precisione GPS ±${Math.round(accuracy)} m`), 1600);
+  }, () => toast('Posizione non disponibile: attiva il GPS'), { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+};
+
+$('btnLocate').onclick = () => map.locate({ setView: true, maxZoom: 18, enableHighAccuracy: true });
+map.on('locationfound', e => {
+  if (meMarker) { meMarker.remove(); meCircle.remove(); }
+  meCircle = L.circle(e.latlng, { radius: e.accuracy, color: '#1565c0', weight: 1, fillOpacity: .1, interactive: false }).addTo(map);
+  meMarker = L.circleMarker(e.latlng, { radius: 8, color: '#fff', weight: 3, fillColor: '#1565c0', fillOpacity: 1, interactive: false }).addTo(map);
+});
+map.on('locationerror', () => toast('Posizione non disponibile: attiva il GPS'));
+
+$('btnLayer').onclick = () => {
+  map.removeLayer(layers[base]);
+  base = base === 'osm' ? 'sat' : 'osm';
+  layers[base].addTo(map);
+  $('btnLayer').textContent = base === 'osm' ? '🛰' : '🗺';
+  toast(base === 'osm' ? 'Mappa OpenStreetMap' : 'Vista satellite');
+};
+
+/* ---------- Finestre ---------- */
+function openModal(html) { $('modalBox').innerHTML = html; $('modal').classList.add('show'); }
+function closeModal() { $('modal').classList.remove('show'); $('modalBox').innerHTML = ''; }
+$('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+
+function form(title, v, withColor, onOk, extra) {
+  openModal(`<h2>${esc(title)}</h2>
+    <label for="fName">Nome</label><input id="fName" value="${esc(v.name)}">
+    ${extra === 'olive' ? `<label for="fVar">Varietà</label><input id="fVar" placeholder="Es. Leccino, Frantoio…" value="${esc(v.variety)}">` : ''}
+    <label for="fNote">Note</label><textarea id="fNote">${esc(v.note)}</textarea>
+    ${withColor ? `<label>Colore</label><div class="swatches">${COLORS.map(c =>
+      `<button class="swatch${c === v.color ? ' sel' : ''}" data-c="${c}" style="background:${c}" aria-label="Colore ${c}"></button>`).join('')}</div>` : ''}
+    <div class="row"><button class="btn" id="fCancel">Annulla</button><button class="btn primary" id="fOk">Salva</button></div>`);
+  let color = v.color;
+  document.querySelectorAll('.swatch').forEach(s => s.onclick = () => {
+    document.querySelectorAll('.swatch').forEach(x => x.classList.remove('sel'));
+    s.classList.add('sel'); color = s.dataset.c;
+  });
+  $('fCancel').onclick = closeModal;
+  $('fOk').onclick = () => {
+    const out = { name: $('fName').value.trim(), note: $('fNote').value.trim(), color };
+    if ($('fVar')) out.variety = $('fVar').value.trim();
+    closeModal(); onOk(out);
+  };
+  setTimeout(() => { const i = $('fName'); i.focus(); i.select(); }, 50);
+}
+
+function editPerimeter(p) {
+  form('Modifica perimetro', p, true, v => {
+    p.name = v.name || p.name; p.note = v.note; p.color = v.color; save(); render(); toast('Modifiche salvate');
+  });
+}
+function editOlive(o) {
+  form('Modifica ulivo', o, false, v => {
+    o.name = v.name || o.name; o.note = v.note; o.variety = v.variety; save(); render(); toast('Modifiche salvate');
+  }, 'olive');
+}
+
+function confirmBox(title, text, okText, onOk) {
+  openModal(`<h2>${esc(title)}</h2>${text ? `<p>${esc(text)}</p>` : ''}
+    <div class="row"><button class="btn" id="cNo">Annulla</button><button class="btn primary" id="cYes" style="background:var(--danger);border-color:var(--danger)">${esc(okText)}</button></div>`);
+  $('cNo').onclick = closeModal;
+  $('cYes').onclick = () => { closeModal(); onOk(); };
+}
+
+/* ---------- Elenco ---------- */
+$('mList').onclick = () => {
+  setMode('view');
+  const outside = data.olives.filter(o => !data.perimeters.some(p => inside(o.lat, o.lng, p.coords))).length;
+  const items = data.perimeters.map(p =>
+    `<div class="list-item" data-id="${p.id}"><span class="dot" style="background:${p.color}"></span>
+      <div class="t"><b>${esc(p.name)}</b><small>${fmtArea(areaM2(p.coords))} · ${olivesIn(p).length} ulivi</small></div>
+      <button class="btn" style="flex:none;min-height:40px;padding:0 14px">Vai</button></div>`).join('');
+  openModal(`<h2>I tuoi uliveti</h2>
+    <div class="stat">${data.perimeters.length} perimetri · ${data.olives.length} ulivi${outside ? ` (${outside} fuori dai perimetri)` : ''}</div>
+    ${items || '<p>Nessun perimetro ancora. Tocca «Perimetro» e segna i confini sulla mappa.</p>'}
+    <label>Cartella di salvataggio</label>
+    ${hasAndroid() ? (folderName()
+      ? `<p>Salvo in automatico in <b>${esc(folderName())}</b>, nel file uliveto.geojson, a ogni modifica.</p>
+         <div class="row"><button class="btn primary" id="fSave">Salva ora</button><button class="btn" id="fLoad">Carica</button></div>
+         <div class="row"><button class="btn" id="fChange">Cambia cartella</button><button class="btn danger" id="fStop">Non usarla più</button></div>`
+      : `<p>Scegli una cartella del telefono (o una scheda SD): l’app ci salverà i dati in automatico a ogni modifica.</p>
+         <div class="row"><button class="btn primary" id="fChange">Scegli cartella</button></div>`)
+      : '<p>Disponibile nell’app Android.</p>'}
+    <label>Singolo file</label>
+    <div class="row"><button class="btn" id="lExp">Esporta</button><button class="btn" id="lImp">Importa</button></div>
+    <div class="row"><button class="btn primary" id="lClose">Chiudi</button></div>`);
+  const on = (id, fn) => { const b = $(id); if (b) b.onclick = () => { closeModal(); fn(); }; };
+  on('fSave', () => saveToFolder(false));
+  on('fLoad', () => Android.loadFromFolder());
+  on('fChange', () => Android.chooseFolder());
+  on('fStop', () => { Android.forgetFolder(); toast('Salvataggio nella cartella disattivato'); });
+  document.querySelectorAll('.list-item').forEach(li => li.querySelector('button').onclick = () => {
+    const p = data.perimeters.find(x => x.id === li.dataset.id);
+    closeModal(); map.fitBounds(L.polygon(p.coords).getBounds(), { padding: [40, 40] });
+  });
+  $('lExp').onclick = () => { closeModal(); exportData(); };
+  $('lImp').onclick = () => { closeModal(); window.Android ? Android.importData() : $('fileIn').click(); };
+  $('lClose').onclick = closeModal;
+};
+
+/* ---------- Esporta / importa (GeoJSON, apribile anche in QGIS) ---------- */
+function toGeoJSON() {
+  return {
+    type: 'FeatureCollection',
+    features: [
+      ...data.perimeters.map(p => ({
+        type: 'Feature',
+        properties: { kind: 'perimetro', id: p.id, name: p.name, note: p.note || '', color: p.color,
+                      area_m2: Math.round(areaM2(p.coords)) },
+        geometry: { type: 'Polygon', coordinates: [[...p.coords, p.coords[0]].map(([la, lo]) => [lo, la])] }
+      })),
+      ...data.olives.map(o => ({
+        type: 'Feature',
+        properties: { kind: 'ulivo', id: o.id, name: o.name, variety: o.variety || '', note: o.note || '', created: o.created || '' },
+        geometry: { type: 'Point', coordinates: [o.lng, o.lat] }
+      }))
+    ]
+  };
+}
+function exportData() {
+  const json = JSON.stringify(toGeoJSON(), null, 1);
+  const name = 'uliveto-' + new Date().toISOString().slice(0, 10) + '.geojson';
+  if (window.Android) return Android.exportData(json, name);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/geo+json' })); a.download = name; a.click();
+}
+window.importData = function (text) {
+  try {
+    const gj = JSON.parse(text);
+    let np = 0, no = 0;
+    (gj.features || []).forEach(f => {
+      const pr = f.properties || {}, g = f.geometry || {};
+      const id = pr.id || uid();
+      if (g.type === 'Polygon' && !data.perimeters.some(x => x.id === id)) {
+        const ring = g.coordinates[0].map(([lo, la]) => [la, lo]);
+        if (ring.length > 3) ring.pop();
+        data.perimeters.push({ id, name: pr.name || 'Perimetro', note: pr.note || '', color: pr.color || COLORS[0], coords: ring }); np++;
+      } else if (g.type === 'Point' && !data.olives.some(x => x.id === id)) {
+        data.olives.push({ id, name: pr.name || 'Ulivo', variety: pr.variety || '', note: pr.note || '',
+                           lat: g.coordinates[1], lng: g.coordinates[0], created: pr.created || '' }); no++;
+      }
+    });
+    save(); render(); fitAll();
+    toast(`Importati ${np} perimetri e ${no} ulivi`);
+  } catch (e) { toast('File non valido: serve un .geojson'); }
+};
+$('fileIn').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(window.importData); e.target.value = '';
+};
+
+/* ---------- Varie ---------- */
+let toastT;
+window.toast = function (msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200);
+};
+window.handleBack = function () {
+  if ($('modal').classList.contains('show')) { closeModal(); return true; }
+  if (mode !== 'view') { setMode('view'); return true; }
+  if (map._popup && map.hasLayer(map._popup)) { map.closePopup(); return true; }
+  return false;
+};
+function fitAll() {
+  const pts = [...data.perimeters.flatMap(p => p.coords), ...data.olives.map(o => [o.lat, o.lng])];
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 18 });
+}
+
+load(); render(); fitAll();
+</script>
+</body>
+</html>
